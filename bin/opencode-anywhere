@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── Config ──────────────────────────────────────────────────────
+PORT=8443
+STATE_DIR="$HOME/.opencode-anywhere"
+PID_FILE="$STATE_DIR/opencode.pid"
+LOG_FILE="$STATE_DIR/opencode.log"
+PASS_FILE="$STATE_DIR/.password"   # chmod 600, stores password between runs
+
+# ─── Colors ──────────────────────────────────────────────────────
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
+fail() { echo -e "  ${RED}✗${NC} $*"; exit 1; }
+info() { echo -e "  ${CYAN}→${NC} $1"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+
+mkdir -p "$STATE_DIR"
+
+# ─── Helpers ─────────────────────────────────────────────────────
+
+is_running() {
+  [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+check_prereqs() {
+  command -v tailscale >/dev/null 2>&1 || fail "tailscale not found. Run: brew install tailscale"
+  ok "tailscale installed"
+
+  command -v opencode >/dev/null 2>&1 || fail "opencode not found. See: https://opencode.ai/docs"
+  ok "opencode installed"
+
+  # Auto-start daemon if not running
+  if ! tailscale status >/dev/null 2>&1; then
+    info "Tailscale daemon not running — starting it (may ask for sudo password)..."
+    sudo /opt/homebrew/opt/tailscale/bin/tailscaled \
+      --state=/var/lib/tailscale/tailscaled.state &
+    for i in $(seq 1 10); do
+      sleep 1
+      tailscale status >/dev/null 2>&1 && break
+      [ "$i" -eq 10 ] && fail "Tailscale daemon failed to start after 10s"
+    done
+  fi
+
+  tailscale status 2>&1 | grep -q "Logged out" \
+    && fail "Tailscale not logged in. Run: tailscale up"
+  ok "Tailscale connected"
+}
+
+get_password() {
+  # Priority: env var > saved file > prompt
+  if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+    return
+  fi
+  if [ -f "$PASS_FILE" ]; then
+    OPENCODE_SERVER_PASSWORD=$(cat "$PASS_FILE")
+    ok "Password loaded (saved)"
+    return
+  fi
+  echo -n "  Enter password for remote access: "
+  read -rs OPENCODE_SERVER_PASSWORD
+  echo ""
+  [ -z "$OPENCODE_SERVER_PASSWORD" ] && fail "Password cannot be empty"
+  # Save it for next time (background restarts, etc.)
+  echo "$OPENCODE_SERVER_PASSWORD" > "$PASS_FILE"
+  chmod 600 "$PASS_FILE"
+  ok "Password set (saved for future runs)"
+}
+
+get_url() {
+  tailscale status --json \
+    | python3 -c "import sys,json; print('https://' + json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))"
+}
+
+start_funnel() {
+  tailscale funnel --bg "${PORT}" 2>/dev/null || true
+  ok "Tailscale Funnel active"
+}
+
+print_url() {
+  local url
+  url=$(get_url)
+  echo ""
+  echo -e "  🌐 ${BOLD}${CYAN}${url}${NC}"
+  echo ""
+}
+
+# ─── Commands ────────────────────────────────────────────────────
+
+cmd_start() {
+  local background=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -b|--background) background=true; shift ;;
+      *) fail "Unknown flag: $1\n\n  Usage: opencode-anywhere start [--background|-b]" ;;
+    esac
+  done
+
+  if is_running; then
+    warn "Already running (PID $(cat "$PID_FILE"))"
+    print_url
+    exit 0
+  fi
+
+  echo ""
+  echo -e "${BOLD}Starting opencode-anywhere...${NC}"
+  check_prereqs
+  get_password
+  start_funnel
+  print_url
+  export OPENCODE_SERVER_PASSWORD
+
+  if $background; then
+    # Detach from terminal — survives terminal close
+    nohup opencode web --hostname 0.0.0.0 --port "${PORT}" \
+      >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    ok "Running in background (PID $(cat "$PID_FILE"))"
+    info "Logs:  opencode-anywhere logs"
+    info "Stop:  opencode-anywhere stop"
+    echo ""
+  else
+    # Foreground — Ctrl+C cleans up everything
+    cleanup() {
+      echo ""
+      echo -e "${BOLD}Shutting down...${NC}"
+      kill "$(cat "$PID_FILE")" 2>/dev/null || true
+      rm -f "$PID_FILE"
+      tailscale funnel --bg off 2>/dev/null || true
+      ok "Stopped. Goodbye!"
+      echo ""
+    }
+    trap cleanup EXIT INT TERM
+
+    opencode web --hostname 0.0.0.0 --port "${PORT}" &
+    echo $! > "$PID_FILE"
+    echo -e "  (Press ${BOLD}Ctrl+C${NC} to stop)"
+    wait "$(cat "$PID_FILE")" || true
+  fi
+}
+
+cmd_stop() {
+  if ! is_running; then
+    warn "Not running"
+    exit 0
+  fi
+
+  echo ""
+  echo -e "${BOLD}Stopping opencode-anywhere...${NC}"
+  kill "$(cat "$PID_FILE")" 2>/dev/null || true
+  rm -f "$PID_FILE"
+  ok "OpenCode stopped"
+
+  tailscale funnel --bg off 2>/dev/null || true
+  ok "Funnel stopped"
+  echo ""
+}
+
+cmd_status() {
+  echo ""
+  if is_running; then
+    echo -e "  ${GREEN}● Running${NC}  (PID $(cat "$PID_FILE"))"
+    info "URL:   $(get_url)"
+    info "Logs:  $LOG_FILE"
+  else
+    echo -e "  ${RED}● Stopped${NC}"
+  fi
+  echo ""
+}
+
+cmd_logs() {
+  if [ ! -f "$LOG_FILE" ]; then
+    warn "No log file yet. Start with: opencode-anywhere start --background"
+    exit 0
+  fi
+  echo -e "  ${CYAN}Tailing logs (Ctrl+C to stop):${NC}"
+  echo ""
+  tail -f "$LOG_FILE"
+}
+
+cmd_help() {
+  echo ""
+  echo -e "  ${BOLD}opencode-anywhere${NC} — Access OpenCode from your phone or any browser"
+  echo ""
+  echo "  Commands:"
+  echo "    start                  Start in foreground (Ctrl+C to stop)"
+  echo "    start --background     Start in background (persists after terminal closes)"
+  echo "    start -b               Same as --background"
+  echo "    stop                   Stop the background instance"
+  echo "    status                 Check if running + show URL"
+  echo "    logs                   Tail background logs"
+  echo ""
+  echo "  State:"
+  echo "    Logs:      $LOG_FILE"
+  echo "    Password:  $PASS_FILE  (delete to re-prompt)"
+  echo ""
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+
+COMMAND="${1:-help}"
+shift || true
+
+case "$COMMAND" in
+  start)          cmd_start "$@" ;;
+  stop)           cmd_stop ;;
+  status)         cmd_status ;;
+  logs)           cmd_logs ;;
+  help|--help|-h) cmd_help ;;
+  *) fail "Unknown command: '$COMMAND'\n\n  Run: opencode-anywhere help" ;;
+esac

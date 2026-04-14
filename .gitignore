@@ -1,0 +1,5 @@
+# State directory
+.opencode-anywhere/
+
+# macOS
+.DS_Store
