@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ─── Config ──────────────────────────────────────────────────────
 PORT=8443
-STATE_DIR="$HOME/.opencode-anywhere"
+STATE_DIR="$HOME/.opencode-tunnel"
 PID_FILE="$STATE_DIR/opencode.pid"
 LOG_FILE="$STATE_DIR/opencode.log"
 PASS_FILE="$STATE_DIR/.password"   # chmod 600, stores password between runs
@@ -24,6 +24,34 @@ warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 mkdir -p "$STATE_DIR"
 
 # ─── Helpers ─────────────────────────────────────────────────────
+
+save_password() {
+  echo "$OPENCODE_SERVER_PASSWORD" > "$PASS_FILE"
+  chmod 600 "$PASS_FILE"
+}
+
+prompt_new_password() {
+  local password confirmation
+
+  while true; do
+    echo -n "  Enter new password: "
+    read -rs password
+    echo ""
+    [ -z "$password" ] && fail "Password cannot be empty"
+
+    echo -n "  Confirm new password: "
+    read -rs confirmation
+    echo ""
+
+    if [ "$password" = "$confirmation" ]; then
+      OPENCODE_SERVER_PASSWORD="$password"
+      save_password
+      return
+    fi
+
+    warn "Passwords do not match. Try again."
+  done
+}
 
 is_running() {
   [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
@@ -68,8 +96,7 @@ get_password() {
   echo ""
   [ -z "$OPENCODE_SERVER_PASSWORD" ] && fail "Password cannot be empty"
   # Save it for next time (background restarts, etc.)
-  echo "$OPENCODE_SERVER_PASSWORD" > "$PASS_FILE"
-  chmod 600 "$PASS_FILE"
+  save_password
   ok "Password set (saved for future runs)"
 }
 
@@ -99,7 +126,7 @@ cmd_start() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -b|--background) background=true; shift ;;
-      *) fail "Unknown flag: $1\n\n  Usage: opencode-anywhere start [--background|-b]" ;;
+      *) fail "Unknown flag: $1\n\n  Usage: opencode-tunnel start [--background|-b]" ;;
     esac
   done
 
@@ -110,7 +137,7 @@ cmd_start() {
   fi
 
   echo ""
-  echo -e "${BOLD}Starting opencode-anywhere...${NC}"
+  echo -e "${BOLD}Starting opencode-tunnel...${NC}"
   check_prereqs
   get_password
   start_funnel
@@ -123,8 +150,8 @@ cmd_start() {
       >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     ok "Running in background (PID $(cat "$PID_FILE"))"
-    info "Logs:  opencode-anywhere logs"
-    info "Stop:  opencode-anywhere stop"
+    info "Logs:  opencode-tunnel logs"
+    info "Stop:  opencode-tunnel stop"
     echo ""
   else
     # Foreground — Ctrl+C cleans up everything
@@ -153,7 +180,7 @@ cmd_stop() {
   fi
 
   echo ""
-  echo -e "${BOLD}Stopping opencode-anywhere...${NC}"
+  echo -e "${BOLD}Stopping opencode-tunnel...${NC}"
   kill "$(cat "$PID_FILE")" 2>/dev/null || true
   rm -f "$PID_FILE"
   ok "OpenCode stopped"
@@ -177,7 +204,7 @@ cmd_status() {
 
 cmd_logs() {
   if [ ! -f "$LOG_FILE" ]; then
-    warn "No log file yet. Start with: opencode-anywhere start --background"
+    warn "No log file yet. Start with: opencode-tunnel start --background"
     exit 0
   fi
   echo -e "  ${CYAN}Tailing logs (Ctrl+C to stop):${NC}"
@@ -185,9 +212,22 @@ cmd_logs() {
   tail -f "$LOG_FILE"
 }
 
+cmd_update_password() {
+  echo ""
+  echo -e "${BOLD}Updating saved password...${NC}"
+  prompt_new_password
+  ok "Password updated"
+
+  if is_running; then
+    warn "Restart opencode-tunnel for the new password to take effect"
+  fi
+
+  echo ""
+}
+
 cmd_help() {
   echo ""
-  echo -e "  ${BOLD}opencode-anywhere${NC} — Access OpenCode from your phone or any browser"
+  echo -e "  ${BOLD}opencode-tunnel${NC} — Access OpenCode from your phone or any browser"
   echo ""
   echo "  Commands:"
   echo "    start                  Start in foreground (Ctrl+C to stop)"
@@ -196,6 +236,7 @@ cmd_help() {
   echo "    stop                   Stop the background instance"
   echo "    status                 Check if running + show URL"
   echo "    logs                   Tail background logs"
+  echo "    update-password        Update the saved password"
   echo ""
   echo "  State:"
   echo "    Logs:      $LOG_FILE"
@@ -213,6 +254,7 @@ case "$COMMAND" in
   stop)           cmd_stop ;;
   status)         cmd_status ;;
   logs)           cmd_logs ;;
+  update-password) cmd_update_password ;;
   help|--help|-h) cmd_help ;;
-  *) fail "Unknown command: '$COMMAND'\n\n  Run: opencode-anywhere help" ;;
+  *) fail "Unknown command: '$COMMAND'\n\n  Run: opencode-tunnel help" ;;
 esac

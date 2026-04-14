@@ -1,4 +1,4 @@
-# opencode-anywhere
+# opencode-tunnel
 
 Access [OpenCode](https://opencode.ai) from your phone or any browser — from anywhere in the world, no VPN required.
 
@@ -31,8 +31,8 @@ Tailscale Funnel acts as a free reverse proxy — it gives your machine a **perm
 ## Installation
 
 ```bash
-git clone https://github.com/dhruvin3001/opencode-anywhere.git
-cd opencode-anywhere
+git clone https://github.com/dhruvin3001/opencode-tunnel.git
+cd opencode-tunnel
 ./install.sh
 source ~/.zshrc
 ```
@@ -43,24 +43,25 @@ source ~/.zshrc
 Runs in your terminal. Press `Ctrl+C` to stop everything cleanly.
 
 ```bash
-opencode-anywhere start
+opencode-tunnel start
 ```
 
 ### Background mode
 Detaches from the terminal — keeps running even after you close the window.
 
 ```bash
-opencode-anywhere start --background
-opencode-anywhere start -b          # same thing
+opencode-tunnel start --background
+opencode-tunnel start -b          # same thing
 ```
 
 ### Other commands
 
 ```bash
-opencode-anywhere stop              # stop the background instance
-opencode-anywhere status            # check if running + show your URL
-opencode-anywhere logs              # tail background logs
-opencode-anywhere help              # show all commands
+opencode-tunnel stop              # stop the background instance
+opencode-tunnel status            # check if running + show your URL
+opencode-tunnel logs              # tail background logs
+opencode-tunnel update-password   # update the saved password
+opencode-tunnel help              # show all commands
 ```
 
 ## Your permanent URL
@@ -75,12 +76,11 @@ This URL **never changes** — it stays the same across reboots, network changes
 
 ## Password
 
-On first run, you'll be prompted to set a password. It's saved to `~/.opencode-anywhere/.password` (chmod 600) so you're not asked again.
+On first run, you'll be prompted to set a password. It's saved to `~/.opencode-tunnel/.password` (chmod 600) so you're not asked again.
 
 To change your password:
 ```bash
-rm ~/.opencode-anywhere/.password
-opencode-anywhere start
+opencode-tunnel update-password
 ```
 
 ## What happens on startup
@@ -99,9 +99,9 @@ On `Ctrl+C` or `stop`: cleanly shuts down OpenCode and turns off the Funnel.
 
 | Path | Description |
 |------|-------------|
-| `~/.opencode-anywhere/.password` | Saved access password (chmod 600) |
-| `~/.opencode-anywhere/opencode.pid` | PID of running background process |
-| `~/.opencode-anywhere/opencode.log` | Logs from background mode |
+| `~/.opencode-tunnel/.password` | Saved access password (chmod 600) |
+| `~/.opencode-tunnel/opencode.pid` | PID of running background process |
+| `~/.opencode-tunnel/opencode.log` | Logs from background mode |
 
 ## One-time Tailscale setup
 
