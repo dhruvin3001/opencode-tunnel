@@ -34,7 +34,12 @@ Tailscale Funnel acts as a free reverse proxy — it gives your machine a **perm
 git clone https://github.com/dhruvin3001/opencode-tunnel.git
 cd opencode-tunnel
 ./install.sh
-source ~/.zshrc    # or ~/.bashrc on Linux
+# Then source the RC file reported by the installer, for example:
+source ~/.zshrc        # zsh
+# or
+source ~/.bashrc       # bash on Linux
+# or
+source ~/.bash_profile # bash on macOS
 ```
 
 ## Usage
@@ -111,8 +116,8 @@ On `Ctrl+C` or `stop`: cleanly shuts down OpenCode and turns off the Funnel.
 # Install
 brew install tailscale
 
-# Start daemon
-sudo /opt/homebrew/opt/tailscale/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state &
+# Start daemon — use brew --prefix for portability across Apple Silicon and Intel
+sudo "$(brew --prefix)/bin/tailscaled" --state=/var/lib/tailscale/tailscaled.state &
 
 # Log in
 tailscale up
