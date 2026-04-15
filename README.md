@@ -13,7 +13,7 @@ Uses [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) to expose your loc
 ☁️  Tailscale Funnel  (https://your-machine.tail-id.ts.net)
         │  encrypted tunnel
         ▼
-🖥️  opencode web  (localhost:8443 on your Mac)
+🖥️  opencode web  (localhost:8443 on your machine)
         │
         ▼
 📁  Your local project files
@@ -23,9 +23,9 @@ Tailscale Funnel acts as a free reverse proxy — it gives your machine a **perm
 
 ## Requirements
 
-- macOS (Apple Silicon or Intel)
+- macOS or Linux
 - [OpenCode](https://opencode.ai/docs) installed
-- [Tailscale](https://tailscale.com) installed via Homebrew (`brew install tailscale`)
+- [Tailscale](https://tailscale.com) installed
 - Tailscale Funnel enabled on your account ([enable it here](https://login.tailscale.com/admin/dns))
 
 ## Installation
@@ -34,7 +34,12 @@ Tailscale Funnel acts as a free reverse proxy — it gives your machine a **perm
 git clone https://github.com/dhruvin3001/opencode-tunnel.git
 cd opencode-tunnel
 ./install.sh
-source ~/.zshrc
+# Then source the RC file reported by the installer, for example:
+source ~/.zshrc        # zsh
+# or
+source ~/.bashrc       # bash on Linux
+# or
+source ~/.bash_profile # bash on macOS
 ```
 
 ## Usage
@@ -105,17 +110,32 @@ On `Ctrl+C` or `stop`: cleanly shuts down OpenCode and turns off the Funnel.
 
 ## One-time Tailscale setup
 
-If you haven't set up Tailscale yet:
+### macOS
 
 ```bash
 # Install
 brew install tailscale
 
-# Start daemon
-sudo /opt/homebrew/opt/tailscale/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state &
+# Start daemon — use brew --prefix for portability across Apple Silicon and Intel
+sudo "$(brew --prefix)/bin/tailscaled" --state=/var/lib/tailscale/tailscaled.state &
 
 # Log in
 tailscale up
+```
+
+### Linux
+
+```bash
+# Install (Ubuntu/Debian)
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# The installer sets up and starts tailscaled via systemd automatically
+
+# Log in
+tailscale up
+
+# Grant your user permission to manage Tailscale without sudo (one-time)
+sudo tailscale set --operator=$USER
 ```
 
 Then [enable Funnel](https://login.tailscale.com/admin/dns) in the Tailscale admin console (DNS tab → enable HTTPS and Funnel).

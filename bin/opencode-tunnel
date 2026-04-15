@@ -57,8 +57,23 @@ is_running() {
   [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
 }
 
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) echo "macos" ;;
+    Linux)  echo "linux" ;;
+    *)      echo "unknown" ;;
+  esac
+}
+
 check_prereqs() {
-  command -v tailscale >/dev/null 2>&1 || fail "tailscale not found. Run: brew install tailscale"
+  local os
+  os=$(detect_os)
+
+  if [ "$os" = "macos" ]; then
+    command -v tailscale >/dev/null 2>&1 || fail "tailscale not found. Run: brew install tailscale"
+  else
+    command -v tailscale >/dev/null 2>&1 || fail "tailscale not found. See: https://tailscale.com/download/linux"
+  fi
   ok "tailscale installed"
 
   command -v opencode >/dev/null 2>&1 || fail "opencode not found. See: https://opencode.ai/docs"
@@ -67,8 +82,14 @@ check_prereqs() {
   # Auto-start daemon if not running
   if ! tailscale status >/dev/null 2>&1; then
     info "Tailscale daemon not running — starting it (may ask for sudo password)..."
-    sudo /opt/homebrew/opt/tailscale/bin/tailscaled \
-      --state=/var/lib/tailscale/tailscaled.state &
+    if [ "$os" = "macos" ]; then
+      sudo /opt/homebrew/opt/tailscale/bin/tailscaled \
+        --state=/var/lib/tailscale/tailscaled.state &
+    elif command -v systemctl >/dev/null 2>&1; then
+      sudo systemctl start tailscaled
+    else
+      fail "Tailscale daemon not running. Start it manually: sudo tailscaled &"
+    fi
     for i in $(seq 1 10); do
       sleep 1
       tailscale status >/dev/null 2>&1 && break
@@ -106,7 +127,19 @@ get_url() {
 }
 
 start_funnel() {
-  tailscale funnel --bg "${PORT}" 2>/dev/null || true
+  local out
+  out=$(tailscale funnel --bg "${PORT}" 2>&1) || {
+    # On Linux, operator permission is often required — try to set it and retry
+    warn "Funnel failed, attempting to set operator permission..."
+    sudo tailscale set --operator="$USER" 2>/dev/null \
+      || fail "Could not set operator. Run once: sudo tailscale set --operator=\$USER"
+    tailscale funnel --bg "${PORT}" 2>&1 \
+      || fail "Tailscale Funnel failed to start. Run: sudo tailscale set --operator=\$USER"
+  }
+  # Verify funnel is actually active
+  if ! tailscale funnel status 2>&1 | grep -q "proxy"; then
+    fail "Tailscale Funnel did not activate. Run: sudo tailscale set --operator=\$USER"
+  fi
   ok "Tailscale Funnel active"
 }
 
@@ -114,7 +147,7 @@ print_url() {
   local url
   url=$(get_url)
   echo ""
-  echo -e "  🌐 ${BOLD}${CYAN}${url}${NC}"
+  echo -e "  ${BOLD}${CYAN}${url}${NC}"
   echo ""
 }
 
